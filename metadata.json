@@ -1,0 +1,7 @@
+{
+  "name": "AI Knowledge Analyzer",
+  "description": "An advanced AI tool to analyze text, files, and URLs to generate summaries, quizzes, flashcards, mind maps, and infographics using Gemini models.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
