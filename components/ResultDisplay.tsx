@@ -37,53 +37,82 @@ const ResultDisplay: React.FC<ResultDisplayProps> = ({ result, onClose }) => {
         // Create a clone to render the full content without scrollbars
         const clone = originalElement.cloneNode(true) as HTMLElement;
         
-        // Style the clone to ensure it renders fully for the PDF
-        clone.style.width = '750px'; // Fixed width for A4 (approx)
+        // 1. Set Fixed Width for A4 Page Simulation
+        // This ensures the alignment and text wrap matches a printed page
+        clone.style.width = '700px'; 
+        clone.style.maxWidth = '700px';
         clone.style.height = 'auto'; // Expand to full height
         clone.style.maxHeight = 'none';
         clone.style.overflow = 'visible';
         
-        // Position it fixed at top-left but behind everything
-        // This ensures it is "in the viewport" for html2canvas to render, but user doesn't see it
-        clone.style.position = 'fixed';
-        clone.style.top = '0';
-        clone.style.left = '0';
-        clone.style.zIndex = '-9999';
+        // 2. Position off-screen safely
+        clone.style.position = 'absolute';
+        clone.style.top = '-10000px';
+        clone.style.left = '-10000px';
         
-        // Force visual styles for print
+        // 3. Typography & Colors (The "Document" Look)
         clone.style.background = '#ffffff';
-        clone.style.color = '#000000';
-        clone.style.padding = '40px'; 
+        clone.style.color = '#000000'; // Force absolute black
+        clone.style.padding = '40px 60px'; // Generous padding for margins
+        clone.style.fontFamily = 'Helvetica, Arial, sans-serif'; // Clean, professional font
+        clone.style.fontSize = '12pt';
+        clone.style.lineHeight = '1.6';
         
-        // Remove Tailwind scroll classes if present on the clone root
-        clone.classList.remove('overflow-y-auto');
-
-        // FORCE BLACK TEXT: Iterate all children and override color
-        // This solves the issue where text might be white or light gray on white background
+        // Remove tailwind scroll classes if present
+        clone.classList.remove('overflow-y-auto', 'bg-surface');
+        
+        // 4. Force styles on all children to ensure consistency
         const allElements = clone.getElementsByTagName('*');
         for (let i = 0; i < allElements.length; i++) {
             const el = allElements[i] as HTMLElement;
+            
+            // Force Black Text
             el.style.color = '#000000';
-            // Also ensure backgrounds are transparent or white, unless specific
-            // We keep backgrounds for quiz options (green/red) but might want to border them strongly
-            if (el.classList.contains('bg-white')) {
-                el.style.backgroundColor = '#ffffff';
+            
+            // Remove dark backgrounds
+            const bg = window.getComputedStyle(el).backgroundColor;
+            if (bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && !el.classList.contains('bg-white')) {
+                 // Keep subtle backgrounds (like code blocks) but ensure they are light
+                 // or just reset to white for cleanliness
+                 if (el.tagName === 'PRE' || el.tagName === 'CODE') {
+                     el.style.backgroundColor = '#f3f4f6';
+                     el.style.border = '1px solid #e5e7eb';
+                 } else {
+                     el.style.backgroundColor = 'transparent';
+                 }
             }
         }
+
+        // 5. Specific Element Overrides for Professional Alignment
+        const headings = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        headings.forEach(h => {
+             const el = h as HTMLElement;
+             el.style.marginTop = '24px';
+             el.style.marginBottom = '12px';
+             el.style.fontFamily = 'Helvetica, Arial, sans-serif';
+             el.style.fontWeight = 'bold';
+        });
+
+        // Add a title header to the PDF if it's missing (since the modal header isn't cloned)
+        const headerDiv = document.createElement('div');
+        headerDiv.innerHTML = `<h1 style="font-size: 24px; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px;">${result.title}</h1>`;
+        clone.insertBefore(headerDiv, clone.firstChild);
         
         document.body.appendChild(clone);
 
         const opt = {
-            margin:       [10, 10], // top/bottom, left/right
+            margin:       [15, 15, 15, 15], // mm
             filename:     `${safeTitle}_${date}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { 
                 scale: 2, 
                 useCORS: true, 
                 logging: false,
-                windowWidth: 800 // Simulate window width
+                windowWidth: 800,
+                background: '#ffffff'
             },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
         };
 
         (window as any).html2pdf()

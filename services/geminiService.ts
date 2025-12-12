@@ -24,15 +24,26 @@ export const generateAnalysis = async (
   let tools: any[] = [];
   let config: any = {};
   
-  // Construct the base prompt
+  // Enable Google Search for URL inputs to allow the model to "read" the web
+  if (inputType === 'url') {
+    tools.push({ googleSearch: {} });
+  }
+  
+  // Construct the base prompt with STRENGTHENED instructions for URLs to prevent "I cannot access" errors
   const textPrompt = inputType === 'url' 
-    ? `Analyze the content at this URL: ${inputContent}` 
+    ? `SYSTEM NOTICE: You have access to Google Search. You MUST use it to process this URL: ${inputContent}
+       
+       ACTION REQUIRED:
+       1. Use the 'googleSearch' tool to find the content of the URL.
+       2. If the URL is a general homepage (e.g., news.google.com), search for "top headlines" or "current main stories" on that site.
+       3. Do NOT refuse by saying you cannot access external websites. The search tool is your bridge.
+       4. Perform the requested analysis (${type}) based on the search results.` 
     : `Analyze the following content:\n\n${inputContent}`;
 
   switch (type) {
     case AnalysisType.SUMMARY:
       model = MODEL_FAST;
-      systemInstruction = "Create a concise, smart summary of the provided content. Use bullet points for key insights.";
+      systemInstruction = "Create a concise, smart summary. Use bullet points for key insights. If analyzing a URL/News, focus on the most important current facts.";
       break;
 
     case AnalysisType.KEYWORD_INSIGHT:
@@ -54,7 +65,10 @@ export const generateAnalysis = async (
     case AnalysisType.CONTEXT_ANALYZER:
       model = MODEL_FAST; // Flash supports grounding
       systemInstruction = "Analyze the context of this topic using recent real-world information. Add external context.";
-      tools = [{ googleSearch: {} }];
+      // Add tool if not already added (e.g. for text input)
+      if (!tools.some(t => t.googleSearch)) {
+        tools.push({ googleSearch: {} });
+      }
       break;
 
     case AnalysisType.REPORT:
@@ -74,7 +88,7 @@ export const generateAnalysis = async (
 
     case AnalysisType.QUIZ:
       model = MODEL_FAST;
-      // Strictly enforce JSON structure to prevent options being merged into question
+      // Strictly enforce JSON structure
       systemInstruction = `Generate a JSON array of 5 multiple choice questions based on the content. 
       IMPORTANT FORMATTING RULES:
       1. The "question" field must contain ONLY the question text. Do NOT include options like "A) ..." in the question string.
@@ -82,41 +96,53 @@ export const generateAnalysis = async (
       3. The "correctAnswer" must match one of the strings in the options array exactly.
       4. Return ONLY raw JSON.`;
       
-      config = {
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              question: { type: Type.STRING, description: "The question text only, without options." },
-              options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of 4 possible answers." },
-              correctAnswer: { type: Type.STRING, description: "The correct answer string." }
-            },
-            required: ["question", "options", "correctAnswer"]
+      // JSON Schema is NOT compatible with Google Search tool.
+      // Only use JSON schema if tools are empty (i.e. not a URL).
+      if (tools.length === 0) {
+        config = {
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING, description: "The question text only, without options." },
+                options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of 4 possible answers." },
+                correctAnswer: { type: Type.STRING, description: "The correct answer string." }
+              },
+              required: ["question", "options", "correctAnswer"]
+            }
           }
-        }
-      };
+        };
+      } else {
+        // Fallback for when Search is active: Ask nicely in text
+        systemInstruction += " Please ensure the output is a valid JSON string inside a markdown code block.";
+      }
       break;
 
     case AnalysisType.FLASHCARDS:
       model = MODEL_FAST;
       systemInstruction = "Generate a JSON array of 8 flashcards. Keep fronts under 10 words and backs under 30 words. Return ONLY raw JSON code. Do not wrap in markdown code blocks. Do not repeat the input text.";
-      config = {
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              front: { type: Type.STRING },
-              back: { type: Type.STRING }
+      
+      if (tools.length === 0) {
+        config = {
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                front: { type: Type.STRING },
+                back: { type: Type.STRING }
+              }
             }
           }
-        }
-      };
+        };
+      } else {
+         systemInstruction += " Please ensure the output is a valid JSON string inside a markdown code block.";
+      }
       break;
 
     case AnalysisType.INFOGRAPHIC:
